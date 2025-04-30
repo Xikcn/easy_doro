@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>情感语音助手</title>
+    <style>
+        body {
+         font-family: "Microsoft YaHei", sans-serif;
+        background: #f0f2f5;
+        margin: 0;
+        padding: 10px; /* 减少内边距 */
+        overflow: hidden; /* 禁止页面滚动 */
+        height: 100vh; /* 使用视口高度 */
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 20px;
+            position: relative;
+        }
+
+        #animation-canvas {
+            width: 100%;
+            height: 450px;
+            border-radius: 8px;
+            background: #000;
+            margin-bottom: 20px;
+        }
+
+        .chat-container {
+        height: 250px; /* 缩小高度 */
+        overflow-y: auto;
+        margin-bottom: 15px; /* 减少间距 */
+        border: 1px solid #eee;
+        border-radius: 8px;
+        padding: 8px; /* 减少内边距 */
+    }
+
+        .message {
+            margin: 10px 0;
+            padding: 12px 16px;
+            border-radius: 20px;
+            max-width: 80%;
+            word-wrap: break-word;
+            position: relative;
+        }
+
+        .user-message {
+            background: #e3f2fd;
+            margin-left: auto;
+        }
+
+        .ai-message {
+            background: #f5f5f5;
+            margin-right: auto;
+        }
+
+        .message-header {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        .replay-btn {
+            margin-top: 8px;
+            padding: 6px 12px;
+            background: #1890ff;
+            color: white;
+            border: none;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: opacity 0.2s;
+        }
+
+        .replay-btn:hover {
+            opacity: 0.9;
+        }
+
+        .action-button {
+            display: block;
+            width: 200px;
+            margin: 20px auto;
+            padding: 12px;
+            background: #1890ff;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: opacity 0.3s;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            border-radius: 12px;
+        }
+
+        .record-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #ff4444;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .recording .record-indicator {
+            opacity: 1;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        .timer {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            color: #666;
+            font-size: 14px;
+            background: rgba(255,255,255,0.9);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="record-indicator"></div>
+    <div class="timer">00:00</div>
+    <div class="container">
+        <canvas id="animation-canvas"></canvas>
+        <div class="chat-container" id="chat-history"></div>
+        <div class="loading-overlay" id="loading">
+            <div>正在处理中...</div>
+        </div>
+        <button class="action-button" id="record-button">
+            🎤 按住录音
+        </button>
+    </div>
+
+    <script>
+        const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:8000' : window.location.origin;
+        // 视频播放控制
+        const canvas = document.getElementById('animation-canvas');
+        const ctx = canvas.getContext('2d');
+        let currentVideo = null;
+        let isRendering = false;
+
+        // 视频资源池
+const videoPool = {
+    '开心': createVideoElement(`${API_BASE}/videos/开心的说.mp4`),
+    '伤心': createVideoElement(`${API_BASE}/videos/伤心的说.mp4`),
+    '生气': createVideoElement(`${API_BASE}/videos/生气的说.mp4`),
+    'default': createVideoElement(`${API_BASE}/videos/开心的说.mp4`)
+};
+// 修改createVideoElement函数，确保循环播放// 2. 增强createVideoElement函数
+function createVideoElement(src) {
+    const video = document.createElement('video');
+    video.src = src;
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.style.display = 'none';
+
+    video.onerror = (e) => {
+        console.error('视频加载失败:', src, e);
+        // 强制切换到默认视频
+        video.src = `${API_BASE}/videos/开心的说.mp4`;
+    };
+
+    document.body.appendChild(video);
+    return video;
+}
+        // 渲染循环
+        function render() {
+            if (!isRendering) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (currentVideo && currentVideo.readyState > 2) {
+                // 保持视频比例居中
+                const videoRatio = currentVideo.videoWidth / currentVideo.videoHeight;
+                const canvasRatio = canvas.width / canvas.height;
+
+                let drawWidth, drawHeight, dx, dy;
+
+                if (videoRatio > canvasRatio) {
+                    drawHeight = canvas.height;
+                    drawWidth = drawHeight * videoRatio;
+                    dx = (canvas.width - drawWidth) / 2;
+                    dy = 0;
+                } else {
+                    drawWidth = canvas.width;
+                    drawHeight = drawWidth / videoRatio;
+                    dx = 0;
+                    dy = (canvas.height - drawHeight) / 2;
+                }
+
+                ctx.drawImage(currentVideo, dx, dy, drawWidth, drawHeight);
+            }
+
+            requestAnimationFrame(render);
+        }
+
+        // 切换视频
+    // 1. 修复handleVideoReady未定义错误
+async function switchVideo(emotion) {
+    console.log(`尝试切换视频到情绪: ${emotion}`);
+    showLoading(true);
+
+    const targetVideo = videoPool[emotion] || videoPool['default'];
+    console.log('目标视频:', targetVideo.src);
+
+    if (currentVideo === targetVideo) {
+        console.log('视频未变化，无需切换');
+        showLoading(false);
+        return;
+    }
+
+    // 停止当前视频
+    if (currentVideo) {
+        console.log('停止当前视频:', currentVideo.src);
+        currentVideo.pause();
+        currentVideo.removeEventListener('canplay', currentVideo._handleVideoReady);
+    }
+
+    currentVideo = targetVideo;
+    currentVideo.loop = true;
+    console.log('设置新视频:', currentVideo.src);
+
+    // 等待视频准备就绪
+    try {
+        await new Promise((resolve, reject) => {
+            currentVideo._handleVideoReady = () => {
+                currentVideo.removeEventListener('canplay', currentVideo._handleVideoReady);
+                console.log('视频准备就绪');
+                resolve();
+            };
+
+            currentVideo._handleError = () => {
+                console.error('视频准备出错');
+                reject(new Error('视频准备失败'));
+            };
+
+            if (currentVideo.readyState > 2) {
+                resolve();
+            } else {
+                currentVideo.addEventListener('canplay', currentVideo._handleVideoReady);
+                currentVideo.addEventListener('error', currentVideo._handleError);
+            }
+        });
+
+        // 设置Canvas尺寸
+        console.log('视频尺寸:', currentVideo.videoWidth, currentVideo.videoHeight);
+        canvas.width = currentVideo.videoWidth;
+        canvas.height = currentVideo.videoHeight;
+
+        await currentVideo.play();
+        console.log('视频播放成功');
+
+        if (!isRendering) {
+            isRendering = true;
+            render();
+        }
+    } catch (error) {
+        console.error('视频切换失败:', error);
+        // 回退到默认视频
+        await switchVideo('default');
+    } finally {
+        showLoading(false);
+    }
+}
+
+
+        // 聊天记录功能
+    // 4. 修改重新播放按钮的创建
+function addMessageToHistory(text, isUser, emotion, audioUrl) {
+    const chatHistory = document.getElementById('chat-history');
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${isUser ? 'user-message' : 'ai-message'}`;
+
+    const header = document.createElement('div');
+    header.className = 'message-header';
+    header.textContent = isUser ? '你说：' : `AI回复（${emotion}）`;
+
+    const content = document.createElement('div');
+    content.innerHTML = formatResponse(text);
+
+    if (!isUser) {
+        const replayButton = document.createElement('button');
+        replayButton.className = 'replay-btn';
+        replayButton.textContent = '🔊 重新播放';
+        replayButton.onclick = () => {
+            const audioUrl = `${API_BASE}/download/tts_output.mp3?t=${Date.now()}`;
+            playAudio(audioUrl);
+        };
+        messageDiv.appendChild(replayButton);
+    }
+
+    messageDiv.prepend(header);
+    messageDiv.appendChild(content);
+    chatHistory.appendChild(messageDiv);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+        function formatResponse(text) {
+            return text
+                .replace(/（(.*?)）/g, '<span style="color:#888;font-size:0.9em">$1</span>')
+                .replace(/…/g, '⋯')
+                .replace(/(\S)(~)/g, '$1<span style="color:#ff69b4;">$2</span>');
+        }
+
+        // 录音控制
+        let mediaRecorder, audioChunks = [];
+        const recordButton = document.getElementById('record-button');
+
+        async function setupRecorder() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm',
+                    audioBitsPerSecond: 16000
+                });
+
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = handleAudioStop;
+
+                // 按钮控制
+                recordButton.addEventListener('mousedown', startRecording);
+                recordButton.addEventListener('mouseup', stopRecording);
+                recordButton.addEventListener('touchstart', e => {
+                    e.preventDefault();
+                    startRecording();
+                });
+                recordButton.addEventListener('touchend', stopRecording);
+            } catch (error) {
+                alert('请允许麦克风访问权限');
+                console.error('录音初始化失败:', error);
+            }
+        }
+
+        function startRecording() {
+            if (!mediaRecorder) return;
+
+            audioChunks = [];
+            mediaRecorder.start();
+            document.body.classList.add('recording');
+            recordButton.textContent = '松开结束';
+            startTimer();
+        }
+
+        function stopRecording() {
+            if (mediaRecorder?.state === 'recording') {
+                mediaRecorder.stop();
+                document.body.classList.remove('recording');
+                recordButton.textContent = '按住录音';
+                stopTimer();
+            }
+        }
+
+        // 计时器控制
+        let timerInterval;
+        function startTimer() {
+            let seconds = 0;
+            document.querySelector('.timer').textContent = '00:00';
+            timerInterval = setInterval(() => {
+                seconds++;
+                const m = String(Math.floor(seconds/60)).padStart(2,'0');
+                const s = String(seconds%60).padStart(2,'0');
+                document.querySelector('.timer').textContent = `${m}:${s}`;
+            }, 1000);
+        }
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+            document.querySelector('.timer').textContent = '00:00';
+        }
+
+        // 音频处理
+        async function handleAudioStop() {
+            showLoading(true);
+
+            try {
+                const webmBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const wavBlob = await convertToWav(webmBlob);
+                await uploadAudio(wavBlob);
+            } catch (error) {
+                console.error('音频处理失败:', error);
+                addMessageToHistory('处理失败，请重试', false, 'default', '');
+            }
+            showLoading(false);
+        }
+
+        async function convertToWav(webmBlob) {
+            const audioContext = new AudioContext();
+            const arrayBuffer = await webmBlob.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            const offlineContext = new OfflineAudioContext(
+                1,
+                audioBuffer.duration * 16000,
+                16000
+            );
+
+            const source = offlineContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(offlineContext.destination);
+            source.start();
+
+            const resampled = await offlineContext.startRendering();
+
+            // 创建WAV文件头
+            const wavHeader = new DataView(new ArrayBuffer(44));
+            writeString(wavHeader, 0, 'RIFF');
+            wavHeader.setUint32(4, 36 + resampled.length * 2, true);
+            writeString(wavHeader, 8, 'WAVE');
+            writeString(wavHeader, 12, 'fmt ');
+            wavHeader.setUint32(16, 16, true);
+            wavHeader.setUint16(20, 1, true);
+            wavHeader.setUint16(22, 1, true);
+            wavHeader.setUint32(24, 16000, true);
+            wavHeader.setUint32(28, 32000, true);
+            wavHeader.setUint16(32, 2, true);
+            wavHeader.setUint16(34, 16, true);
+            writeString(wavHeader, 36, 'data');
+            wavHeader.setUint32(40, resampled.length * 2, true);
+
+            // 合并数据
+            const wavBuffer = new Uint8Array(44 + resampled.length * 2);
+            wavBuffer.set(new Uint8Array(wavHeader.buffer), 0);
+
+            const channelData = resampled.getChannelData(0);
+            for (let i = 0; i < channelData.length; i++) {
+                const value = Math.max(-1, Math.min(1, channelData[i]));
+                const intValue = value < 0 ? value * 32768 : value * 32767;
+                wavBuffer[44 + i*2] = intValue;
+                wavBuffer[45 + i*2] = intValue >> 8;
+            }
+
+            return new Blob([wavBuffer], { type: 'audio/wav' });
+        }
+async function uploadAudio(wavBlob) {
+    const formData = new FormData();
+    formData.append('audio', wavBlob, 'recording.wav');
+
+    try {
+        // 确保使用已定义的 API_BASE
+        const response = await fetch(`${API_BASE}/process`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        handleResponse(data);
+    } catch (error) {
+        console.error('上传失败:', error);
+        addMessageToHistory('服务暂时不可用', false, 'default', '');
+    }
+}
+
+        // 响应处理
+// 3. 修改handleResponse函数
+function handleResponse(data) {
+    addMessageToHistory(data.text, true);
+    addMessageToHistory(data.raw_response, false, data.emotion, data.audio_url);
+
+    // 使用 playAudio 函数播放音频
+    const audioUrl = data.audio_url.startsWith('http')
+        ? data.audio_url
+        : `${API_BASE}${data.audio_url}`;
+
+    const audio = playAudio(audioUrl);
+
+    // 切换对应情绪的视频
+    switchVideo(data.emotion);
+
+    // 音频结束后切换回默认视频
+    audio.onended = () => {
+        switchVideo('default');
+    };
+}
+
+function playAudio(url) {
+    // 使用已定义的 API_BASE 构建完整 URL
+    const fullUrl = url.startsWith('http') ? url : `${API_BASE}${url}`;
+    const audio = new Audio(fullUrl);
+
+    audio.play().catch(e => {
+        console.log('自动播放被阻止，请手动点击播放按钮');
+    });
+    return audio;
+}
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        // 初始化
+        Promise.all([
+            new Promise(resolve => {
+                Object.values(videoPool).forEach(video => {
+                    if (video.readyState === 4) return;
+                    video.addEventListener('loadeddata', resolve);
+                });
+            }),
+            setupRecorder()
+        ]).then(() => {
+            canvas.width = videoPool.default.videoWidth;
+            canvas.height = videoPool.default.videoHeight;
+            switchVideo('default');
+        });
+    </script>
+</body>
+</html>
