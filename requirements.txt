@@ -4,3 +4,5 @@ pydantic~=2.9.2
 funasr~=1.2.6
 openai~=1.52.2
 starlette~=0.41.0
+chromadb~=0.4.24
+edge-tts~=6.1.9

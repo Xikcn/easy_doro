@@ -95,6 +95,25 @@
             transition: opacity 0.3s;
         }
 
+        .action-button-small {
+            display: inline-block;
+            width: auto;
+            margin: 10px 10px;
+            padding: 8px 16px;
+            background: #f5222d;
+            color: white;
+            border: none;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: opacity 0.3s;
+        }
+
+        .buttons-container {
+            text-align: center;
+            margin-top: 10px;
+        }
+
         .loading-overlay {
             position: absolute;
             top: 0;
@@ -156,6 +175,11 @@
         <button class="action-button" id="record-button">
             🎤 按住录音
         </button>
+        <div class="buttons-container">
+            <button class="action-button-small" id="clear-history-button">
+                🗑️ 清空聊天记录
+            </button>
+        </div>
     </div>
 
     <script>
@@ -166,6 +190,11 @@
         let currentVideo = null;
         let isRendering = false;
 
+        // 当前内存中保存的聊天记录
+        let chatMessages = [];
+        // 当前播放的音频元素
+        let currentAudio = null;
+
         // 视频资源池
 const videoPool = {
     '开心': createVideoElement(`${API_BASE}/videos/开心的说.mp4`),
@@ -173,7 +202,7 @@ const videoPool = {
     '生气': createVideoElement(`${API_BASE}/videos/生气的说.mp4`),
     'default': createVideoElement(`${API_BASE}/videos/开心的说.mp4`)
 };
-// 修改createVideoElement函数，确保循环播放// 2. 增强createVideoElement函数
+// 修改createVideoElement函数，确保循环播放
 function createVideoElement(src) {
     const video = document.createElement('video');
     video.src = src;
@@ -224,7 +253,6 @@ function createVideoElement(src) {
         }
 
         // 切换视频
-    // 1. 修复handleVideoReady未定义错误
 async function switchVideo(emotion) {
     console.log(`尝试切换视频到情绪: ${emotion}`);
     showLoading(true);
@@ -242,7 +270,9 @@ async function switchVideo(emotion) {
     if (currentVideo) {
         console.log('停止当前视频:', currentVideo.src);
         currentVideo.pause();
-        currentVideo.removeEventListener('canplay', currentVideo._handleVideoReady);
+        if (currentVideo._handleVideoReady) {
+            currentVideo.removeEventListener('canplay', currentVideo._handleVideoReady);
+        }
     }
 
     currentVideo = targetVideo;
@@ -253,7 +283,9 @@ async function switchVideo(emotion) {
     try {
         await new Promise((resolve, reject) => {
             currentVideo._handleVideoReady = () => {
-                currentVideo.removeEventListener('canplay', currentVideo._handleVideoReady);
+                if (currentVideo._handleVideoReady) {
+                    currentVideo.removeEventListener('canplay', currentVideo._handleVideoReady);
+                }
                 console.log('视频准备就绪');
                 resolve();
             };
@@ -294,7 +326,6 @@ async function switchVideo(emotion) {
 
 
         // 聊天记录功能
-    // 4. 修改重新播放按钮的创建
 function addMessageToHistory(text, isUser, emotion, audioUrl) {
     const chatHistory = document.getElementById('chat-history');
 
@@ -308,13 +339,14 @@ function addMessageToHistory(text, isUser, emotion, audioUrl) {
     const content = document.createElement('div');
     content.innerHTML = formatResponse(text);
 
-    if (!isUser) {
+    if (!isUser && audioUrl) {
         const replayButton = document.createElement('button');
         replayButton.className = 'replay-btn';
         replayButton.textContent = '🔊 重新播放';
         replayButton.onclick = () => {
-            const audioUrl = `${API_BASE}/download/tts_output.mp3?t=${Date.now()}`;
             playAudio(audioUrl);
+            // 切换对应情绪的视频
+            switchVideo(emotion);
         };
         messageDiv.appendChild(replayButton);
     }
@@ -323,6 +355,21 @@ function addMessageToHistory(text, isUser, emotion, audioUrl) {
     messageDiv.appendChild(content);
     chatHistory.appendChild(messageDiv);
     chatHistory.scrollTop = chatHistory.scrollHeight;
+
+    // 在内存中保存消息
+    if (!isUser && emotion && audioUrl) {
+        chatMessages.push({
+            isUser: false,
+            text: text,
+            emotion: emotion,
+            audioUrl: audioUrl
+        });
+    } else if (isUser) {
+        chatMessages.push({
+            isUser: true,
+            text: text
+        });
+    }
 }
 
         function formatResponse(text) {
@@ -335,6 +382,33 @@ function addMessageToHistory(text, isUser, emotion, audioUrl) {
         // 录音控制
         let mediaRecorder, audioChunks = [];
         const recordButton = document.getElementById('record-button');
+        const clearHistoryButton = document.getElementById('clear-history-button');
+
+        // 添加清空聊天记录功能
+        clearHistoryButton.addEventListener('click', clearChatHistory);
+
+        async function clearChatHistory() {
+            try {
+                showLoading(true);
+                const response = await fetch(`${API_BASE}/clear_history`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    // 清空聊天记录区域
+                    document.getElementById('chat-history').innerHTML = '';
+                    // 清空内存中的聊天记录
+                    chatMessages = [];
+                    alert('聊天记录已清空');
+                } else {
+                    alert(`清空失败: ${data.error}`);
+                }
+            } catch (error) {
+                console.error('清空聊天记录失败:', error);
+                alert('清空聊天记录失败，请重试');
+            } finally {
+                showLoading(false);
+            }
+        }
 
         async function setupRecorder() {
             try {
@@ -466,7 +540,6 @@ async function uploadAudio(wavBlob) {
     formData.append('audio', wavBlob, 'recording.wav');
 
     try {
-        // 确保使用已定义的 API_BASE
         const response = await fetch(`${API_BASE}/process`, {
             method: 'POST',
             headers: {
@@ -488,17 +561,15 @@ async function uploadAudio(wavBlob) {
 }
 
         // 响应处理
-// 3. 修改handleResponse函数
 function handleResponse(data) {
+    // 记录用户输入
     addMessageToHistory(data.text, true);
+    
+    // 记录AI回复
     addMessageToHistory(data.raw_response, false, data.emotion, data.audio_url);
 
-    // 使用 playAudio 函数播放音频
-    const audioUrl = data.audio_url.startsWith('http')
-        ? data.audio_url
-        : `${API_BASE}${data.audio_url}`;
-
-    const audio = playAudio(audioUrl);
+    // 播放音频
+    const audio = playAudio(data.audio_url);
 
     // 切换对应情绪的视频
     switchVideo(data.emotion);
@@ -510,14 +581,25 @@ function handleResponse(data) {
 }
 
 function playAudio(url) {
-    // 使用已定义的 API_BASE 构建完整 URL
+    // 使用API_BASE构建完整URL（如果需要）
     const fullUrl = url.startsWith('http') ? url : `${API_BASE}${url}`;
-    const audio = new Audio(fullUrl);
+    console.log('播放音频:', fullUrl);
+    
+    // 如果有正在播放的音频，停止它
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+    }
 
-    audio.play().catch(e => {
-        console.log('自动播放被阻止，请手动点击播放按钮');
+    // 创建新的音频对象
+    currentAudio = new Audio(fullUrl);
+
+    // 播放音频
+    currentAudio.play().catch(e => {
+        console.error('自动播放被阻止:', e);
     });
-    return audio;
+    
+    return currentAudio;
 }
 
         function writeString(view, offset, string) {
@@ -530,19 +612,72 @@ function playAudio(url) {
             document.getElementById('loading').style.display = show ? 'flex' : 'none';
         }
 
+        // 获取历史聊天记录
+        async function fetchChatHistory() {
+            try {
+                const response = await fetch(`${API_BASE}/chat_history`);
+                if (!response.ok) {
+                    throw new Error(`获取聊天记录失败: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('获取聊天历史:', data);
+
+                if (data.messages && data.messages.length > 0) {
+                    // 清空聊天记录区域
+                    document.getElementById('chat-history').innerHTML = '';
+
+                    // 反转顺序，更早的消息先显示
+                    const messages = [...data.messages];
+
+                    // 添加到界面
+                    messages.forEach(msg => {
+                        // 先添加用户输入
+                        addMessageToHistory(msg.user_input, true);
+                        // 再添加AI回复
+                        addMessageToHistory(msg.ai_response, false, msg.emotion, msg.audio_path);
+                    });
+                }
+            } catch (error) {
+                console.error('获取聊天记录错误:', error);
+            }
+        }
+
         // 初始化
         Promise.all([
             new Promise(resolve => {
+                let loadedCount = 0;
+                const totalVideos = Object.keys(videoPool).length;
+                
                 Object.values(videoPool).forEach(video => {
-                    if (video.readyState === 4) return;
-                    video.addEventListener('loadeddata', resolve);
+                    if (video.readyState >= 4) {
+                        loadedCount++;
+                        if (loadedCount === totalVideos) {
+                            resolve();
+                        }
+                    } else {
+                        video.addEventListener('loadeddata', () => {
+                            loadedCount++;
+                            if (loadedCount === totalVideos) {
+                                resolve();
+                            }
+                        });
+                    }
                 });
+                
+                // 超时处理
+                setTimeout(() => {
+                    resolve();
+                }, 5000);
             }),
             setupRecorder()
         ]).then(() => {
             canvas.width = videoPool.default.videoWidth;
             canvas.height = videoPool.default.videoHeight;
             switchVideo('default');
+
+            // 加载历史聊天记录
+            fetchChatHistory();
         });
     </script>
 </body>
