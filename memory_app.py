@@ -246,14 +246,23 @@ app.add_middleware(
     expose_headers=["Content-Disposition"]
 )
 
-# 初始化模型
+# 初始化模型 cuda:0 ， cpu 自行替换
 model = AutoModel(
-    model=r"D:\Models_Home\ModelScope\hub\iic\SenseVoiceSmall",
+    model='iic/SenseVoiceSmall',
     vad_model="fsmn-vad",
     vad_kwargs={"max_single_segment_time": 30000},
     device="cuda:0",
     disable_update=True
 )
+
+# 采用本地模型快速加载
+# model = AutoModel(
+#     model=r"D:\Models_Home\ModelScope\hub\iic\SenseVoiceSmall",
+#     vad_model="fsmn-vad",
+#     vad_kwargs={"max_single_segment_time": 30000},
+#     device="cuda:0",
+#     disable_update=True
+# )
 
 # 初始化OpenAI客户端
 client_openai = OpenAI(
