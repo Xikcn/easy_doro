@@ -25,5 +25,5 @@ uv pip install -r requirements_uv.txt
 
 ## 启动后端
 ```bash
-python mcp_app.py  # 带记忆功能的
+python mcp_app.py
 ```
