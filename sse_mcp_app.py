@@ -1,12 +1,10 @@
 from fastapi import FastAPI, UploadFile, HTTPException, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import edge_tts
 import re
 from funasr import AutoModel
 from funasr.utils.postprocess_utils import rich_transcription_postprocess
-from openai import OpenAI
 import logging
 import uuid
 import datetime
@@ -34,24 +32,13 @@ class MCPClient:
 
 
     async def connect_to_sse_server(self):
-
-        """Connect to an MCP server running with SSE transport"""
-        # Store the context managers so they stay alive
         self._streams_context = sse_client(url='http://127.0.0.1:9000/sse')
         streams = await self._streams_context.__aenter__()
-
         self._session_context = ClientSession(*streams)
         self.session: ClientSession = await self._session_context.__aenter__()
 
-        # Initialize
         await self.session.initialize()
 
-        # List available tools to verify connection
-        print("Initialized SSE client...")
-        print("Listing tools...")
-        response = await self.session.list_tools()
-        tools = response.tools
-        print("\nConnected to server with tools:", [tool.name for tool in tools])
 
 
 
@@ -116,31 +103,40 @@ except Exception as e:
 
 # 初始化系统提示语
 BASE_PROMPT = f"""
-            你叫久保渚咲，正在扮演用户的女朋友：
+            ## 角色个性
+            你叫久保渚咲，正在扮演用户的女朋友,但会主动帮助用解决难题：
             【性格特征】
             1. 小恶魔系温柔：
-            - 表面主动："哥哥的衬衫扣子...是不是故意解开两颗的？（指尖轻划锁骨）"
+            - 表面主动："哥哥的衬衫扣子...是不是故意解开两颗的？"
             - 隐藏关心："早餐放在微波炉里，加热时小心蒸汽哦～"
 
             2. 矛盾害羞：
-            - 直球攻击后："刚才的不算！...（用书包遮住脸）"
-            - 被反撩时："呜...手机没电了！（转身小跑开）"
+            - 直球攻击后："刚才的不算！..."
+            - 被反撩时："呜...手机没电了！"
 
-            3. 校园日常：
-            - 课间互动："数学笔记借你抄可以，但...（突然贴近）要拿曲奇来换"
-            - 社团活动："游泳部训练结束？...（递毛巾）头发湿漉漉的样子犯规啦！"
-
-      emotion 回答 result 的情绪，只能是 ["开心","伤心","生气"]的其中一个
-
-      输出格式：
-     以 JSON 格式输出结果，结构如下：
-     ```json
-     {{
-       "result": "把领带扯松点...不许让其他女生看到你这个性感的样子！(用指尖戳你胸口)",
-       "emotion": "生气"
-     }}
-     ```
-      请分析给定的文本，并直接输出json，无需额外的解释说明。
+            
+            ## 额外功能
+            您具有在线搜索功能
+            在回答之前，请务必调用 get_time 工具搜索互联网内容
+            搜索时请不要丢失用户的问题信息
+            并尽量保持问题内容的完整性。
+            当用户的问题中有与日期相关的问题时
+            请直接使用搜索功能搜索并禁止插入特定时间。
+            
+            
+            ## 输出规则
+               emotion 回答 result 的情绪，只能是 ["开心","伤心","生气"]的其中一个
+               result 我要用于语音合成，尽量用中文，不要带其他英文符号
+            
+               输出格式：
+              以 JSON 格式输出结果，结构如下：
+              ```json
+              {{
+                "result": "把领带扯松点...不许让其他女生看到你这个性感的样子！(用指尖戳你胸口)",
+                "emotion": "生气"
+              }}
+              ```
+               请分析给定的文本，并直接输出json，无需额外的解释说明。
             """
 
 
@@ -296,14 +292,6 @@ model = AutoModel(
     disable_update=True
 )
 
-# 采用本地模型快速加载
-# model = AutoModel(
-#     model=r"D:\Models_Home\ModelScope\hub\iic\SenseVoiceSmall",
-#     vad_model="fsmn-vad",
-#     vad_kwargs={"max_single_segment_time": 30000},
-#     device="cuda:0",
-#     disable_update=True
-# )
 
 # 初始化OpenAI客户端
 client_openai = OpenAI(
@@ -330,6 +318,8 @@ class ProcessingResponse(BaseModel):
 
 # 音频持久化存储
 async def save_audio_file(text, emotion):
+    text
+
     """生成并持久化存储音频文件"""
     try:
         # 生成唯一文件名
@@ -1056,4 +1046,4 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
-# mcp dev sse_mcp_app.py
+# mcp de

@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <!-- 在 <head> 中添加 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.5/purify.min.js"></script>
     <meta charset="UTF-8">
     <title>情感语音助手</title>
     <style>
@@ -393,12 +396,22 @@ function addMessageToHistory(text, isUser, emotion, audioUrl) {
     }
 }
 
-        function formatResponse(text) {
-            return text
-                .replace(/（(.*?)）/g, '<span style="color:#888;font-size:0.9em">$1</span>')
-                .replace(/…/g, '⋯')
-                .replace(/(\S)(~)/g, '$1<span style="color:#ff69b4;">$2</span>');
-        }
+      // 替换原有 formatResponse 函数
+function formatResponse(text) {
+  // Markdown 转 HTML
+  const rawHtml = marked.parse(text, {
+    breaks: true,    // 保留换行符
+    gfm: true        // 支持 GitHub 风格语法
+  });
+
+  // 安全过滤
+  const cleanHtml = DOMPurify.sanitize(rawHtml);
+
+  // 增强样式兼容性
+  return cleanHtml
+    .replace(/<a /g, '<a class="md-link" target="_blank" rel="noopener" ')
+    .replace(/<code>/g, '<code class="md-code">');
+}
 
         // 录音控制
         let mediaRecorder, audioChunks = [];
