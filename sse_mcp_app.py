@@ -3,8 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import edge_tts
-import os
-import json
 import re
 from funasr import AutoModel
 from funasr.utils.postprocess_utils import rich_transcription_postprocess
@@ -23,6 +21,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.sse import sse_client
 
 load_dotenv()
 
@@ -33,20 +32,28 @@ class MCPClient:
         self.exit_stack = AsyncExitStack()
         self.client = OpenAI()
 
-    async def connect_to_server(self):
-        server_params = StdioServerParameters(
-            command='uv',
-            args=['run', 'mcp_main.py'],
-            env=None
-        )
 
-        stdio_transport = await self.exit_stack.enter_async_context(
-            stdio_client(server_params))
-        stdio, write = stdio_transport
-        self.session = await self.exit_stack.enter_async_context(
-            ClientSession(stdio, write))
+    async def connect_to_sse_server(self):
 
+        """Connect to an MCP server running with SSE transport"""
+        # Store the context managers so they stay alive
+        self._streams_context = sse_client(url='http://127.0.0.1:9000/sse')
+        streams = await self._streams_context.__aenter__()
+
+        self._session_context = ClientSession(*streams)
+        self.session: ClientSession = await self._session_context.__aenter__()
+
+        # Initialize
         await self.session.initialize()
+
+        # List available tools to verify connection
+        print("Initialized SSE client...")
+        print("Listing tools...")
+        response = await self.session.list_tools()
+        tools = response.tools
+        print("\nConnected to server with tools:", [tool.name for tool in tools])
+
+
 
 
 client_mcp = MCPClient()
@@ -598,7 +605,7 @@ def speech_to_text(file_path: str) -> str:
 
 
 async def analyze_emotion(text: str) -> dict:
-    await client_mcp.connect_to_server()
+    await client_mcp.connect_to_sse_server()
     if text == "":
         return {
             "result": "你好像什么都没说。",
@@ -636,16 +643,17 @@ async def analyze_emotion(text: str) -> dict:
                 "input_schema": tool.inputSchema
             }
         } for tool in response.tools]
+
         # 请求 deepseek，function call 的描述信息通过 tools 参数传入
 
         response = client_openai.chat.completions.create(
             model="deepseek-chat",
             messages=history_messages,
-            tools=available_tools,
-            temperature=1
+            tools=available_tools
         )
         # 处理返回的内容
         content = response.choices[0]
+
         if content.finish_reason == "tool_calls":
             # 如何是需要使用工具，就解析工具
             tool_call = content.message.tool_calls[0]
@@ -661,6 +669,7 @@ async def analyze_emotion(text: str) -> dict:
                 "content": result.content[0].text,
                 "tool_call_id": tool_call.id,
             })
+
         # 将上面的结果再返回给 deepseek 用于生产最终的结果
         response = client_openai.chat.completions.create(
             model="deepseek-chat",
@@ -1045,3 +1054,6 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# mcp dev sse_mcp_app.py

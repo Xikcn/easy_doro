@@ -1,7 +1,4 @@
-import json
-import httpx
 from mcp.server import FastMCP
-from mcp.types import SamplingMessage, TextContent
 
 # # 初始化 FastMCP 服务器
 app = FastMCP('get_time')

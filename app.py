@@ -260,7 +260,7 @@ model = AutoModel(
 
 # 初始化OpenAI客户端
 client_openai = OpenAI(
-    api_key="sk-xx",
+    api_key=os.getenv("OPENAI_API_KEY"),
     base_url="https://api.deepseek.com"
 )
 
@@ -489,7 +489,7 @@ async def process_audio(audio: UploadFile = File(...)):
         # 存储用户消息
         user_msg_id = store_chat_message("user", text)
         logger.info(f"存储用户消息: {text[:30]}...，ID: {user_msg_id}")
-        
+
         # 情感分析
         emotion_data = await analyze_emotion(text)
         
