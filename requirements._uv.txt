@@ -1,0 +1,15 @@
+uvicorn~=0.32.0
+fastapi~=0.115.3
+pydantic~=2.9.2
+funasr~=1.2.6
+openai==1.55.3
+starlette~=0.41.0
+chromadb
+edge-tts~=6.1.9
+torch
+tools
+torchaudio
+numpy
+python-multipart
+mcp~=1.5.0
+python-dotenv~=1.1.0

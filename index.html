@@ -5,40 +5,61 @@
     <title>情感语音助手</title>
     <style>
         body {
-         font-family: "Microsoft YaHei", sans-serif;
-        background: #f0f2f5;
-        margin: 0;
-        padding: 10px; /* 减少内边距 */
-        overflow: hidden; /* 禁止页面滚动 */
-        height: 100vh; /* 使用视口高度 */
+            font-family: "Microsoft YaHei", sans-serif;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
+
         .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
             max-width: 800px;
-            margin: 0 auto;
+            width: 95%;
+            margin: 10px auto;
             background: white;
             border-radius: 12px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             padding: 20px;
             position: relative;
+            min-height: 0; /* 修复flex容器溢出问题 */
         }
 
         #animation-canvas {
             width: 100%;
-            height: 450px;
+            flex: 1;
+            min-height: 0; /* 允许canvas缩小 */
             border-radius: 8px;
             background: #000;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
 
         .chat-container {
-        height: 250px; /* 缩小高度 */
-        overflow-y: auto;
-        margin-bottom: 15px; /* 减少间距 */
-        border: 1px solid #eee;
-        border-radius: 8px;
-        padding: 8px; /* 减少内边距 */
-    }
+            flex: 1;
+            min-height: 0; /* 允许聊天容器缩小 */
+            overflow-y: auto;
+            margin-bottom: 10px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 8px;
+        }
+
+  
+
+        @media (max-height: 700px) {
+            #animation-canvas {
+                height: 200px;
+            }
+            .chat-container {
+                height: 150px;
+            }
+        }
 
         .message {
             margin: 10px 0;
@@ -83,9 +104,9 @@
         }
 
         .action-button {
+            margin: 10px auto;
             display: block;
             width: 200px;
-            margin: 20px auto;
             padding: 12px;
             background: #1890ff;
             color: white;
@@ -183,7 +204,7 @@
     </div>
 
     <script>
-        const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:8000' : window.location.origin;
+        const API_BASE = 'http://localhost:8000'
         // 视频播放控制
         const canvas = document.getElementById('animation-canvas');
         const ctx = canvas.getContext('2d');

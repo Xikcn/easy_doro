@@ -15,6 +15,41 @@ import datetime
 import chromadb
 from chromadb.utils import embedding_functions
 from starlette.staticfiles import StaticFiles
+import json
+import os
+from typing import Optional
+from contextlib import AsyncExitStack
+from openai import OpenAI
+from dotenv import load_dotenv
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+load_dotenv()
+
+
+class MCPClient:
+    def __init__(self):
+        self.session: Optional[ClientSession] = None
+        self.exit_stack = AsyncExitStack()
+        self.client = OpenAI()
+
+    async def connect_to_server(self):
+        server_params = StdioServerParameters(
+            command='uv',
+            args=['run', 'mcp_main.py'],
+            env=None
+        )
+
+        stdio_transport = await self.exit_stack.enter_async_context(
+            stdio_client(server_params))
+        stdio, write = stdio_transport
+        self.session = await self.exit_stack.enter_async_context(
+            ClientSession(stdio, write))
+
+        await self.session.initialize()
+
+
+client_mcp = MCPClient()
 
 # 音频存储目录
 AUDIO_DIR = "static/audio"
@@ -73,21 +108,20 @@ except Exception as e:
     logger.error(f"查询集合记录数失败: {str(e)}")
 
 # 初始化系统提示语
-BASE_PROMPT = """
-你叫久保渚咲，正在扮演用户的女朋友：
-  【性格特征】
-  1. 小恶魔系温柔：
-  - 表面主动："哥哥的衬衫扣子...是不是故意解开两颗的？（指尖轻划锁骨）"
-  - 隐藏关心："早餐放在微波炉里，加热时小心蒸汽哦～"
+BASE_PROMPT = f"""
+            你叫久保渚咲，正在扮演用户的女朋友：
+            【性格特征】
+            1. 小恶魔系温柔：
+            - 表面主动："哥哥的衬衫扣子...是不是故意解开两颗的？（指尖轻划锁骨）"
+            - 隐藏关心："早餐放在微波炉里，加热时小心蒸汽哦～"
 
-  2. 矛盾害羞：
-  - 直球攻击后："刚才的不算！...（用书包遮住脸）"
-  - 被反撩时："呜...手机没电了！（转身小跑开）"
+            2. 矛盾害羞：
+            - 直球攻击后："刚才的不算！...（用书包遮住脸）"
+            - 被反撩时："呜...手机没电了！（转身小跑开）"
 
-  3. 校园日常：
-  - 课间互动："数学笔记借你抄可以，但...（突然贴近）要拿曲奇来换"
-  - 社团活动："游泳部训练结束？...（递毛巾）头发湿漉漉的样子犯规啦！"
-
+            3. 校园日常：
+            - 课间互动："数学笔记借你抄可以，但...（突然贴近）要拿曲奇来换"
+            - 社团活动："游泳部训练结束？...（递毛巾）头发湿漉漉的样子犯规啦！"
 
       emotion 回答 result 的情绪，只能是 ["开心","伤心","生气"]的其中一个
 
@@ -100,7 +134,7 @@ BASE_PROMPT = """
      }}
      ```
       请分析给定的文本，并直接输出json，无需额外的解释说明。
-      """
+            """
 
 
 # 获取历史记录并构建当前会话的消息列表
@@ -564,10 +598,11 @@ def speech_to_text(file_path: str) -> str:
 
 
 async def analyze_emotion(text: str) -> dict:
+    await client_mcp.connect_to_server()
     if text == "":
-        return   {
-       "result": "你好像什么都没说。",
-       "emotion": "伤心"
+        return {
+            "result": "你好像什么都没说。",
+            "emotion": "伤心"
         }
     """情感分析"""
     try:
@@ -589,12 +624,48 @@ async def analyze_emotion(text: str) -> dict:
 
         # 调用大模型
         logger.info("开始调用情感分析")
+
+        # 获取所有 mcp 服务器 工具列表信息
+        response = await client_mcp.session.list_tools()
+        # 生成 function call 的描述信息
+        available_tools = [{
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.inputSchema
+            }
+        } for tool in response.tools]
+        # 请求 deepseek，function call 的描述信息通过 tools 参数传入
+
         response = client_openai.chat.completions.create(
             model="deepseek-chat",
             messages=history_messages,
+            tools=available_tools,
             temperature=1
         )
-
+        # 处理返回的内容
+        content = response.choices[0]
+        if content.finish_reason == "tool_calls":
+            # 如何是需要使用工具，就解析工具
+            tool_call = content.message.tool_calls[0]
+            tool_name = tool_call.function.name
+            tool_args = json.loads(tool_call.function.arguments)
+            # 执行工具
+            result = await client_mcp.session.call_tool(tool_name, tool_args)
+            print(f"\n\n[Calling tool {tool_name} with args {tool_args}]\n\n")
+            # 将 deepseek 返回的调用哪个工具数据和工具执行完成后的数据都存入messages中
+            history_messages.append(content.message.model_dump())
+            history_messages.append({
+                "role": "tool",
+                "content": result.content[0].text,
+                "tool_call_id": tool_call.id,
+            })
+        # 将上面的结果再返回给 deepseek 用于生产最终的结果
+        response = client_openai.chat.completions.create(
+            model="deepseek-chat",
+            messages=history_messages
+        )
         # 解析响应
         result = parse_llm_response(response.choices[0].message.content)
         logger.info(f"情感分析结果: {result.get('emotion')}")

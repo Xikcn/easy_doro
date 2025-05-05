@@ -7,9 +7,23 @@
 ## 启动后端
 ```bash
 pip install -r requirements.txt
-python app.py  # 普通版本
-python memory_app.py  # 带记忆功能的
+python app.py
 ```
 
 ## 启动前端
 双击 index.html
+
+
+
+# 使用mcp服务启动
+## 按照 uv
+
+## uv下载依赖
+```bash
+uv pip install -r requirements_uv.txt
+```
+
+## 启动后端
+```bash
+python mcp_app.py  # 带记忆功能的
+```
