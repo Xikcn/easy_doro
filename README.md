@@ -1,4 +1,5 @@
 # Doro
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Xikcn/easy_doro)
 ![doro_idle.png](imgs/doro_idle.png)
 
 ## 项目展示
